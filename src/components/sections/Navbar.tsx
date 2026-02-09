@@ -4,7 +4,11 @@ import Link from "next/link";
 import Image from "next/image";
 import { useState, useEffect } from "react";
 
-export default function Navbar() {
+interface NavbarProps {
+  hideOnFooter?: boolean;
+}
+
+export default function Navbar({ hideOnFooter = true }: NavbarProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [isDarkTheme, setIsDarkTheme] = useState(false);
@@ -16,12 +20,16 @@ export default function Navbar() {
       const windowHeight = window.innerHeight;
       const documentHeight = document.documentElement.scrollHeight;
       setIsScrolled(scrollY > 20);
-      setIsHidden(scrollY + windowHeight > documentHeight - 400);
+      if (hideOnFooter) {
+        setIsHidden(scrollY + windowHeight > documentHeight - 400);
+      } else {
+        setIsHidden(false);
+      }
     };
     window.addEventListener("scroll", handleScroll);
     handleScroll();
     return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
+  }, [hideOnFooter]);
 
   // Navbar white (dark theme) sirf ExploreWorkflows section me; baaki page pe nahi
   useEffect(() => {
