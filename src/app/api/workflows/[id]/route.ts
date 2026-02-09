@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { Prisma } from '@prisma/client';
 import { getCurrentUser } from '@/lib/api-auth';
 import prisma from '@/lib/db';
-import type { UpdateWorkflowBody, WorkflowDetail } from '@/lib/api-types';
+import type { WorkflowDetail } from '@/lib/api-types';
+import { updateWorkflowSchema, parseBody } from '@/lib/api-schemas';
+import type { z } from 'zod';
 
 function toDetail(w: {
   id: string;
@@ -60,7 +62,15 @@ export async function PATCH(
   try {
     const user = await getCurrentUser();
     const { id } = await params;
-    const body = (await request.json()) as UpdateWorkflowBody;
+    let raw: unknown;
+    try {
+      raw = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
+    const parsed = parseBody<z.infer<typeof updateWorkflowSchema>>(updateWorkflowSchema.safeParse(raw));
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
     const existing = await prisma.workflow.findFirst({
       where: { id, userId: user.id },

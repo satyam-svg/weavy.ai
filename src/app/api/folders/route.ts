@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/api-auth';
 import prisma from '@/lib/db';
-import type { CreateFolderBody, FolderListItem } from '@/lib/api-types';
+import type { FolderListItem } from '@/lib/api-types';
+import { createFolderSchema, parseBody } from '@/lib/api-schemas';
+import type { z } from 'zod';
 
 function toListItem(f: {
   id: string;
@@ -62,13 +64,17 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser();
-    const body = (await request.json()) as CreateFolderBody;
+    let raw: unknown;
+    try {
+      raw = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
+    const parsed = parseBody<z.infer<typeof createFolderSchema>>(createFolderSchema.safeParse(raw));
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
     const name = body.name.trim();
-    if (!name) {
-      return NextResponse.json({ error: 'Name is required' }, { status: 400 });
-    }
-
     const parentId = body.parentId ?? null;
 
     if (parentId) {

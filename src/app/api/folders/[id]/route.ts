@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/api-auth';
 import prisma from '@/lib/db';
-import type { UpdateFolderBody, FolderDetail } from '@/lib/api-types';
+import type { FolderDetail } from '@/lib/api-types';
+import { updateFolderSchema, parseBody } from '@/lib/api-schemas';
+import type { z } from 'zod';
 
 function toDetail(f: {
   id: string;
@@ -56,7 +58,15 @@ export async function PATCH(
   try {
     const user = await getCurrentUser();
     const { id } = await params;
-    const body = (await request.json()) as UpdateFolderBody;
+    let raw: unknown;
+    try {
+      raw = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
+    const parsed = parseBody<z.infer<typeof updateFolderSchema>>(updateFolderSchema.safeParse(raw));
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
     const existing = await prisma.folder.findFirst({
       where: { id, userId: user.id },

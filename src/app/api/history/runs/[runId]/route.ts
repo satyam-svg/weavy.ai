@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/api-auth';
 import prisma from '@/lib/db';
-import type { UpdateRunBody, WorkflowRunDto, NodeRunDto } from '@/lib/api-types';
+import type { WorkflowRunDto, NodeRunDto } from '@/lib/api-types';
+import { updateRunSchema, parseBody } from '@/lib/api-schemas';
+import type { z } from 'zod';
 
 function nodeRunToDto(nr: {
   id: string;
@@ -106,7 +108,15 @@ export async function PATCH(
   try {
     await getCurrentUser();
     const { runId } = await params;
-    const body = (await request.json()) as UpdateRunBody;
+    let raw: unknown;
+    try {
+      raw = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
+    const parsed = parseBody<z.infer<typeof updateRunSchema>>(updateRunSchema.safeParse(raw));
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
     // Deduct credits only when run is marked completed (and was not already completed)
     if (body.status === 'completed') {

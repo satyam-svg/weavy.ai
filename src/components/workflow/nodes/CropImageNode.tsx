@@ -79,6 +79,18 @@ export function CropImageNode({ id, data, selected }: NodeProps<CropImageFlowNod
     const [renameDialogOpen, setRenameDialogOpen] = React.useState(false);
     const [newLabel, setNewLabel] = React.useState(data.label || 'Crop');
     const [localDimensions, setLocalDimensions] = React.useState({ width: 0, height: 0 });
+    const previewRef = React.useRef<HTMLDivElement | null>(null);
+
+    type DragMode = 'move' | 'resize' | null;
+    const [dragMode, setDragMode] = React.useState<DragMode>(null);
+    const dragStartRef = React.useRef<{
+        x: number;
+        y: number;
+        cropX: number;
+        cropY: number;
+        cropWidth: number;
+        cropHeight: number;
+    } | null>(null);
 
     const displayLabel = data.label || 'Crop';
     const isLocked = data.isLocked || false;
@@ -113,12 +125,16 @@ export function CropImageNode({ id, data, selected }: NodeProps<CropImageFlowNod
         return null;
     }, [edges, nodes, id]);
 
-    // Update inputImageUrl when connection changes
+    // Update inputImageUrl when connection changes; set initial crop to 97% x 100%
     React.useEffect(() => {
         if (connectedImageUrl && connectedImageUrl !== inputImageUrl) {
             updateNodeData<CropImageFlowNode>(id, {
                 inputImageUrl: connectedImageUrl,
-                outputImageUrl: undefined, // Reset output when input changes
+                outputImageUrl: undefined,
+                cropX: 0,
+                cropY: 0,
+                cropWidth: 97,
+                cropHeight: 100,
             });
         }
     }, [connectedImageUrl, inputImageUrl, id, updateNodeData]);
@@ -175,6 +191,78 @@ export function CropImageNode({ id, data, selected }: NodeProps<CropImageFlowNod
             outputImageUrl: undefined,
         });
     };
+
+    // Helpers for mouse-based crop manipulation
+    const startDrag = (mode: DragMode, e: React.MouseEvent) => {
+        if (isProcessing || isLocked) return;
+        e.preventDefault();
+        e.stopPropagation();
+        setDragMode(mode);
+        dragStartRef.current = {
+            x: e.clientX,
+            y: e.clientY,
+            cropX: data.cropX,
+            cropY: data.cropY,
+            cropWidth: data.cropWidth,
+            cropHeight: data.cropHeight,
+        };
+    };
+
+    React.useEffect(() => {
+        if (!dragMode) return;
+
+        const handleMove = (e: MouseEvent) => {
+            if (!previewRef.current || !dragStartRef.current) return;
+            const rect = previewRef.current.getBoundingClientRect();
+            if (!rect.width || !rect.height) return;
+
+            const dx = ((e.clientX - dragStartRef.current.x) / rect.width) * 100;
+            const dy = ((e.clientY - dragStartRef.current.y) / rect.height) * 100;
+
+            if (dragMode === 'move') {
+                const nextX = Math.min(
+                    Math.max(0, dragStartRef.current.cropX + dx),
+                    100 - dragStartRef.current.cropWidth
+                );
+                const nextY = Math.min(
+                    Math.max(0, dragStartRef.current.cropY + dy),
+                    100 - dragStartRef.current.cropHeight
+                );
+                updateNodeData<CropImageFlowNode>(id, {
+                    cropX: nextX,
+                    cropY: nextY,
+                    outputImageUrl: undefined,
+                });
+            } else if (dragMode === 'resize') {
+                const minSize = 5;
+                const nextWidth = Math.min(
+                    Math.max(minSize, dragStartRef.current.cropWidth + dx),
+                    100 - dragStartRef.current.cropX
+                );
+                const nextHeight = Math.min(
+                    Math.max(minSize, dragStartRef.current.cropHeight + dy),
+                    100 - dragStartRef.current.cropY
+                );
+                updateNodeData<CropImageFlowNode>(id, {
+                    cropWidth: nextWidth,
+                    cropHeight: nextHeight,
+                    outputImageUrl: undefined,
+                });
+            }
+        };
+
+        const handleUp = () => {
+            setDragMode(null);
+            dragStartRef.current = null;
+        };
+
+        window.addEventListener('mousemove', handleMove);
+        window.addEventListener('mouseup', handleUp);
+        return () => {
+            window.removeEventListener('mousemove', handleMove);
+            window.removeEventListener('mouseup', handleUp);
+        };
+    }, [dragMode, id, updateNodeData, isProcessing, isLocked]);
 
     // Poll for task completion
     const pollTaskResult = async (runId: string): Promise<TriggerPollResponse> => {
@@ -348,23 +436,34 @@ export function CropImageNode({ id, data, selected }: NodeProps<CropImageFlowNod
                 <div className="mb-3">
                     <label className="text-xs text-foreground/60 mb-1 block">Input Preview</label>
                     {inputImageUrl ? (
-                        <div className="relative rounded-lg overflow-hidden bg-muted/40">
+                        <div
+                            ref={previewRef}
+                            className="nodrag nopan relative rounded-lg overflow-hidden bg-muted/40"
+                        >
                             <img
                                 src={inputImageUrl}
                                 alt="Input Preview"
-                                className="w-full max-h-37.5 object-contain"
+                                className="w-full max-h-37.5 object-contain pointer-events-none"
                                 onLoad={handleImageLoad}
                             />
                             {!outputImageUrl && data.cropWidth < 100 && (
                                 <div
-                                    className="absolute border-2 border-purple-500 bg-purple-500/10 pointer-events-none"
+                                    className="nodrag nopan absolute border-2 border-purple-500 bg-purple-500/10 cursor-move"
                                     style={{
                                         left: `${data.cropX}%`,
                                         top: `${data.cropY}%`,
                                         width: `${data.cropWidth}%`,
                                         height: `${data.cropHeight}%`,
                                     }}
-                                />
+                                    onMouseDown={(e) => startDrag('move', e)}
+                                >
+                                    {/* Resize handle bottom-right */}
+                                    <div
+                                        className="nodrag nopan absolute w-3 h-3 rounded-full bg-purple-500 border-2 border-white cursor-se-resize"
+                                        style={{ right: '-6px', bottom: '-6px' }}
+                                        onMouseDown={(e) => startDrag('resize', e)}
+                                    />
+                                </div>
                             )}
                         </div>
                     ) : (

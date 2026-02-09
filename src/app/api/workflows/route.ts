@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { Prisma } from '@prisma/client';
 import { getCurrentUser } from '@/lib/api-auth';
 import prisma from '@/lib/db';
-import type { CreateWorkflowBody, WorkflowListItem } from '@/lib/api-types';
+import type { WorkflowListItem } from '@/lib/api-types';
+import { createWorkflowSchema, parseBody } from '@/lib/api-schemas';
+import type { z } from 'zod';
 
 function toListItem(w: { id: string; name: string; thumbnail: string | null; folderId: string | null; createdAt: Date; updatedAt: Date }): WorkflowListItem {
   return {
@@ -52,7 +54,15 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser();
-    const body = (await request.json()) as CreateWorkflowBody;
+    let raw: unknown;
+    try {
+      raw = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
+    const parsed = parseBody<z.infer<typeof createWorkflowSchema>>(createWorkflowSchema.safeParse(raw));
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
     const name = body.name ?? 'untitled';
     const folderId = body.folderId ?? null;

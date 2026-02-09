@@ -49,7 +49,7 @@ export const getDefaultNodeData = (
             return {
                 cropX: 0,
                 cropY: 0,
-                cropWidth: 100,
+                cropWidth: 97,
                 cropHeight: 100,
                 aspectRatio: 'custom' as const,
                 label: 'Crop'

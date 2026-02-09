@@ -1,12 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/api-auth';
 import prisma from '@/lib/db';
-import type { CreateRunBody } from '@/lib/api-types';
+import { createRunSchema, parseBody } from '@/lib/api-schemas';
+import type { z } from 'zod';
 
 export async function POST(request: NextRequest) {
   try {
     await getCurrentUser();
-    const body = (await request.json()) as CreateRunBody;
+    let raw: unknown;
+    try {
+      raw = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
+    const parsed = parseBody<z.infer<typeof createRunSchema>>(createRunSchema.safeParse(raw));
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
     const { workflowId, runScope, nodeCount } = body;
 

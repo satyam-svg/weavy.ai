@@ -10,38 +10,32 @@ import { tasks, runs } from '@trigger.dev/sdk/v3';
 import type { LLMTaskPayload } from '@/trigger/llmTask';
 import type { CropImageTaskPayload } from '@/trigger/cropImageTask';
 import type { ExtractFrameTaskPayload } from '@/trigger/extractFrameTask';
-
-// Task type definitions
-type TaskType = 'llm' | 'crop-image' | 'extract-frame';
-
-interface TriggerRequest {
-    taskType: TaskType;
-    payload: LLMTaskPayload | CropImageTaskPayload | ExtractFrameTaskPayload;
-}
+import { triggerRequestSchema, parseBody } from '@/lib/api-schemas';
+import type { z } from 'zod';
 
 export async function POST(request: NextRequest) {
     try {
-        const body = await request.json() as TriggerRequest;
-        const { taskType, payload } = body;
-
-        if (!taskType || !payload) {
-            return NextResponse.json(
-                { error: 'Missing taskType or payload' },
-                { status: 400 }
-            );
+        let raw: unknown;
+        try {
+            raw = await request.json();
+        } catch {
+            return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
         }
+        const parsed = parseBody<z.infer<typeof triggerRequestSchema>>(triggerRequestSchema.safeParse(raw));
+        if (!parsed.ok) return parsed.response;
+        const { taskType, payload } = parsed.data;
 
         let handle;
 
         switch (taskType) {
             case 'llm':
-                handle = await tasks.trigger('llm-gemini', payload as LLMTaskPayload);
+                handle = await tasks.trigger('llm-gemini', payload as unknown as LLMTaskPayload);
                 break;
             case 'crop-image':
-                handle = await tasks.trigger('crop-image', payload as CropImageTaskPayload);
+                handle = await tasks.trigger('crop-image', payload as unknown as CropImageTaskPayload);
                 break;
             case 'extract-frame':
-                handle = await tasks.trigger('extract-video-frame', payload as ExtractFrameTaskPayload);
+                handle = await tasks.trigger('extract-video-frame', payload as unknown as ExtractFrameTaskPayload);
                 break;
             default:
                 return NextResponse.json(

@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/api-auth';
 import prisma from '@/lib/db';
-import type { AddNodeRunBody, NodeRunDto } from '@/lib/api-types';
+import type { NodeRunDto } from '@/lib/api-types';
+import { addNodeRunSchema, parseBody } from '@/lib/api-schemas';
+import type { z } from 'zod';
 
 function toDto(nr: {
   id: string;
@@ -38,7 +40,15 @@ export async function POST(
   try {
     await getCurrentUser();
     const { runId } = await params;
-    const body = (await request.json()) as AddNodeRunBody;
+    let raw: unknown;
+    try {
+      raw = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
+    const parsed = parseBody<z.infer<typeof addNodeRunSchema>>(addNodeRunSchema.safeParse(raw));
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
     const nodeRun = await prisma.nodeRun.create({
       data: {
