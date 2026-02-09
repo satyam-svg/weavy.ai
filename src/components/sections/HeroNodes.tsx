@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { Position } from '@xyflow/react';
 import { NodeHandle } from './primitives';
 import type { ImageNodeData, TextNodeData, VideoNodeData } from './types';
@@ -127,6 +128,16 @@ export const TextNode = ({ data }: TextNodeProps) => {
  * ```
  */
 export const VideoNode = ({ data }: VideoNodeProps) => {
+  const [videoSrc, setVideoSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (data.video.startsWith('http')) {
+      setVideoSrc(data.video);
+    } else {
+      setVideoSrc(`${window.location.origin}${data.video}`);
+    }
+  }, [data.video]);
+
   return (
     <div className="group select-none">
       <div className="flex items-center gap-3 mb-2 px-1">
@@ -143,14 +154,20 @@ export const VideoNode = ({ data }: VideoNodeProps) => {
         className="relative rounded-lg overflow-hidden bg-white shadow-[0_8px_32px_rgba(0,0,0,0.08)] border border-black/5"
         style={{ width: data.width, height: data.height }}
       >
-        <video
-          src={data.video}
-          autoPlay
-          loop
-          muted
-          playsInline
-          className="w-full h-full object-cover"
-        />
+        {videoSrc ? (
+          <video
+            key={videoSrc}
+            src={videoSrc}
+            autoPlay
+            loop
+            muted
+            playsInline
+            preload="auto"
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <div className="w-full h-full bg-black/5 animate-pulse" />
+        )}
         <NodeHandle type="target" position={Position.Left} />
         <NodeHandle type="source" position={Position.Right} />
       </div>

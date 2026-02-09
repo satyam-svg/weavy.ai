@@ -36,8 +36,7 @@ export const HERO_NODES: HeroNode[] = [
         data: {
             label: 'STABLE DIFFUSION',
             sublabel: 'IMAGE',
-            image:
-                'https://cdn.prod.website-files.com/681b040781d5b5e278a69989/681cd7cbc22419b32bb9d8d8_hcard%20-%20STABLE%20DIFFUSION.avif',
+            image: '/assets/man.png',
             width: 300,
             height: 420,
         },
@@ -59,8 +58,7 @@ export const HERO_NODES: HeroNode[] = [
         data: {
             label: 'FLUX PRO 1.1',
             sublabel: 'IMAGE',
-            image:
-                'https://cdn.prod.website-files.com/681b040781d5b5e278a69989/6837510acbe777269734b387_bird_desktop.avif',
+            image: '/assets/crow.png',
             width: 150,
             height: 220,
         },
@@ -116,8 +114,7 @@ export const HERO_NODES_MOBILE: HeroNode[] = [
         data: {
             label: 'STABLE DIFFUSION',
             sublabel: 'IMAGE',
-            image:
-                'https://cdn.prod.website-files.com/681b040781d5b5e278a69989/681cd7cbc22419b32bb9d8d8_hcard%20-%20STABLE%20DIFFUSION.avif',
+            image: '/assets/man.png',
             width: 150,
             height: 200,
         },
@@ -129,8 +126,7 @@ export const HERO_NODES_MOBILE: HeroNode[] = [
         data: {
             label: 'FLUX PRO 1.1',
             sublabel: 'IMAGE',
-            image:
-                'https://cdn.prod.website-files.com/681b040781d5b5e278a69989/6837510acbe777269734b387_bird_desktop.avif',
+            image: '/assets/crow.png',
             width: 120,
             height: 160,
         },

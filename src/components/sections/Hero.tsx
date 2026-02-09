@@ -11,12 +11,15 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import { ImageNode, TextNode, VideoNode } from './HeroNodes';
-import { HERO_NODES, HERO_EDGES, HERO_NODE_EXTENT, HERO_NODES_MOBILE, HERO_NODE_EXTENT_MOBILE } from './data';
+import {
+  HERO_NODES,
+  HERO_EDGES,
+  HERO_NODE_EXTENT,
+  HERO_NODES_MOBILE,
+  HERO_NODE_EXTENT_MOBILE,
+} from './data';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 
-/**
- * Node type registry for React Flow
- */
 const nodeTypes = {
   imageNode: ImageNode,
   textNode: TextNode,
@@ -24,20 +27,19 @@ const nodeTypes = {
 };
 
 /**
- * Hero Section Component
- * 
- * Displays the main landing hero area with:
- * - Large "Weavy Artistic Intelligence" headline
- * - Interactive React Flow diagram showcasing AI workflow
- * - Draggable nodes connected by edges
- * - Fully responsive design for mobile screens
+ * Hero Section - headline + React Flow diagram (nodes from hero.data, no Three.js)
  */
 const HeroSection = () => {
   const isMobile = useMediaQuery('(max-width: 768px)');
 
-  // Use mobile-optimized nodes on smaller screens
-  const initialNodes = useMemo(() => isMobile ? HERO_NODES_MOBILE : HERO_NODES, [isMobile]);
-  const nodeExtent = useMemo(() => isMobile ? HERO_NODE_EXTENT_MOBILE : HERO_NODE_EXTENT, [isMobile]);
+  const initialNodes = useMemo(
+    () => (isMobile ? HERO_NODES_MOBILE : HERO_NODES),
+    [isMobile]
+  );
+  const nodeExtent = useMemo(
+    () => (isMobile ? HERO_NODE_EXTENT_MOBILE : HERO_NODE_EXTENT),
+    [isMobile]
+  );
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(HERO_EDGES);
@@ -63,33 +65,25 @@ const HeroSection = () => {
         backgroundRepeat: 'no-repeat, no-repeat, no-repeat, repeat, repeat',
       }}
     >
-      {/* Hero Text Content (Overlay) */}
       <div className="absolute top-24 md:top-32 left-6 md:left-20 z-10 pointer-events-none select-none max-w-7xl">
         <div className="flex flex-col gap-8">
-
-          {/* Headline Row */}
           <div className="flex items-baseline gap-16">
             <h1 className="text-7xl lg:text-8xl leading-none tracking-tight text-black font-normal">
               Weavy
             </h1>
-
             <h2 className="text-7xl lg:text-8xl leading-none tracking-tight text-black font-normal">
               Artistic Intelligence
             </h2>
           </div>
-
-          {/* Description */}
           <div className="ml-90">
             <p className="max-w-lg text-base md:text-lg leading-relaxed text-black/90">
-              Turn your creative vision into scalable workflows. Access all AI models and professional editing tools in one node based platform.
+              Turn your creative vision into scalable workflows. Access all AI models and
+              professional editing tools in one node based platform.
             </p>
           </div>
-
         </div>
       </div>
 
-
-      {/* React Flow Container */}
       <div
         className="absolute bottom-0 md:bottom-[-30px] left-0 md:left-[5%] w-full md:w-[90%] h-[60%] h-[calc(20%+200px)] md:h-[calc(50%+100px)] rounded-b-lg z-1 overflow-hidden"
         style={{
@@ -110,11 +104,11 @@ const HeroSection = () => {
             fitViewOptions={{ padding: isMobile ? 0.1 : 0.2 }}
             zoomOnScroll={false}
             panOnScroll={false}
-            panOnDrag={true}
+            panOnDrag
             selectionOnDrag={false}
-            nodesDraggable={true}
+            nodesDraggable
             nodesConnectable={false}
-            elementsSelectable={true}
+            elementsSelectable
             className="bg-transparent"
             nodeExtent={nodeExtent}
             translateExtent={nodeExtent}

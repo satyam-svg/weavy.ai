@@ -19,7 +19,7 @@ export default function WorkflowsSlider() {
     useHorizontalScroll({ scrollAmount: 400 });
 
   return (
-    <section className="hidden md:block bg-[#252525] text-white py-30 md:py-40 overflow-hidden">
+    <section id="explore-workflows" className="hidden md:block bg-[#252525] text-white py-30 md:py-40 overflow-hidden">
       <div className="container px-[5%] max-w-360 mx-auto">
         {/* Header Row */}
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-8 mb-12">
