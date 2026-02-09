@@ -129,7 +129,7 @@ export function WorkflowHistoryPanel({ isOpen, onClose }: WorkflowHistoryPanelPr
             case 'running':
                 return <Loader2 className="h-4 w-4 text-purple-400 animate-spin" />;
             default:
-                return <Clock className="h-4 w-4 text-foreground/40" />;
+                return <Clock className="h-4 w-4 text-white/50" />;
         }
     };
 
@@ -137,14 +137,14 @@ export function WorkflowHistoryPanel({ isOpen, onClose }: WorkflowHistoryPanelPr
 
     return (
         <div
-            className="fixed right-0 top-0 h-full w-80 max-w-[85vw] bg-card border-l border-border shadow-xl z-50 flex flex-col"
+            className="fixed right-0 top-0 h-full w-80 max-w-[85vw] bg-[#1a1a1a] border-l border-white/10 shadow-xl z-50 flex flex-col text-white"
             style={{ transform: isOpen ? 'translateX(0)' : 'translateX(100%)' }}
         >
-            {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-border">
+            {/* Header - same style as left sidebar */}
+            <div className="flex items-center justify-between p-4 border-b border-white/10">
                 <div className="flex items-center gap-2">
                     <Clock className="h-5 w-5 text-purple-400" />
-                    <h2 className="text-lg font-semibold">Workflow History</h2>
+                    <h2 className="text-lg font-semibold text-white">Workflow History</h2>
                 </div>
                 <div className="flex items-center gap-2">
                     {workflowRuns.length > 0 && workflowId && (
@@ -152,7 +152,7 @@ export function WorkflowHistoryPanel({ isOpen, onClose }: WorkflowHistoryPanelPr
                             variant="ghost"
                             size="sm"
                             onClick={() => clearHistory(workflowId)}
-                            className="text-foreground/60 hover:text-red-400"
+                            className="text-white/70 hover:text-red-400 hover:bg-white/10"
                         >
                             <Trash2 className="h-4 w-4 mr-1" />
                             Clear
@@ -160,9 +160,9 @@ export function WorkflowHistoryPanel({ isOpen, onClose }: WorkflowHistoryPanelPr
                     )}
                     <button
                         onClick={onClose}
-                        className="p-1.5 rounded-md hover:bg-muted/40"
+                        className="p-1.5 rounded-md text-white/70 hover:bg-white/10 hover:text-white"
                     >
-                        <X className="h-5 w-5 text-foreground/60" />
+                        <X className="h-5 w-5" />
                     </button>
                 </div>
             </div>
@@ -174,15 +174,15 @@ export function WorkflowHistoryPanel({ isOpen, onClose }: WorkflowHistoryPanelPr
                         <Loader2 className="h-6 w-6 text-purple-400 animate-spin" />
                     </div>
                 ) : workflowRuns.length === 0 ? (
-                    <div className="py-12 text-center text-foreground/50">
-                        <Clock className="h-12 w-12 mx-auto mb-3 text-foreground/20" />
-                        <p className="text-sm">No runs yet</p>
-                        <p className="text-xs mt-1 text-foreground/40">
-                            Click "Run All" to execute the workflow
+                    <div className="py-12 text-center text-white/70">
+                        <Clock className="h-12 w-12 mx-auto mb-3 text-white/30" />
+                        <p className="text-sm text-white">No runs yet</p>
+                        <p className="text-xs mt-1 text-white/60">
+                            Click &quot;Run All&quot; to execute the workflow
                         </p>
                     </div>
                 ) : (
-                    <div className="divide-y divide-border/50">
+                    <div className="divide-y divide-white/10">
                         {workflowRuns.map((run, index) => (
                             <RunEntry
                                 key={run.id}
@@ -228,30 +228,30 @@ function RunEntry({
     getNodeStatusIcon,
 }: RunEntryProps) {
     return (
-        <div className="bg-background/30">
+        <div className="bg-white/5">
             {/* Run Header */}
             <button
                 onClick={onToggle}
-                className="w-full p-3 flex items-start gap-3 hover:bg-muted/20 transition-colors text-left"
+                className="w-full p-3 flex items-start gap-3 hover:bg-white/10 transition-colors text-left text-white"
             >
                 <div className="mt-0.5">
                     {isExpanded ? (
-                        <ChevronDown className="h-4 w-4 text-foreground/50" />
+                        <ChevronDown className="h-4 w-4 text-white/60" />
                     ) : (
-                        <ChevronRight className="h-4 w-4 text-foreground/50" />
+                        <ChevronRight className="h-4 w-4 text-white/60" />
                     )}
                 </div>
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-sm text-foreground">
-                            Run #{runNumber}
+                        <span className="font-medium text-sm text-white">
+                            Workflow #{runNumber}
                         </span>
                         {getStatusBadge(run.status)}
                     </div>
-                    <div className="text-xs text-foreground/50 mt-1">
+                    <div className="text-xs text-white/70 mt-1">
                         {formatTime(run.startedAt)}
                     </div>
-                    <div className="flex items-center gap-3 mt-1 text-xs text-foreground/40">
+                    <div className="flex items-center gap-3 mt-1 text-xs text-white/60">
                         <span>{getScopeLabel(run.runScope)}</span>
                         <span>•</span>
                         <span>{run.nodeCount} node{run.nodeCount !== 1 ? 's' : ''}</span>
@@ -267,7 +267,7 @@ function RunEntry({
 
             {/* Node Details */}
             {isExpanded && run.nodeRuns.length > 0 && (
-                <div className="pl-8 pr-3 pb-3 space-y-1">
+                <div className="pl-8 pr-3 pb-3 space-y-1 text-white">
                     {run.nodeRuns.map((nodeRun) => (
                         <NodeRunEntry
                             key={nodeRun.id}
@@ -293,13 +293,13 @@ function NodeRunEntry({ nodeRun, formatDuration, getNodeStatusIcon }: NodeRunEnt
     const [showOutput, setShowOutput] = React.useState(false);
 
     return (
-        <div className="rounded-md bg-muted/30 p-2">
+        <div className="rounded-md bg-white/10 border border-white/10 p-2 text-white">
             <div className="flex items-center gap-2">
                 {getNodeStatusIcon(nodeRun.status)}
-                <span className="text-sm text-foreground truncate flex-1">
+                <span className="text-sm text-white truncate flex-1">
                     {nodeRun.nodeName}
                 </span>
-                <span className="text-xs text-foreground/40">
+                <span className="text-xs text-white/70">
                     {formatDuration(nodeRun.duration)}
                 </span>
             </div>
@@ -320,8 +320,8 @@ function NodeRunEntry({ nodeRun, formatDuration, getNodeStatusIcon }: NodeRunEnt
                         {showInput ? 'Hide input' : 'Show input'}
                     </button>
                     {showInput && (
-                        <div className="mt-1 text-xs text-foreground/60 bg-cyan-500/10 rounded p-2 max-h-24 overflow-y-auto">
-                            <pre className="whitespace-pre-wrap break-all">
+                        <div className="mt-1 text-xs text-white/90 bg-cyan-500/20 rounded p-2 max-h-24 overflow-y-auto">
+                            <pre className="whitespace-pre-wrap break-all text-white">
                                 {JSON.stringify(nodeRun.inputData, null, 2)}
                             </pre>
                         </div>
@@ -339,8 +339,8 @@ function NodeRunEntry({ nodeRun, formatDuration, getNodeStatusIcon }: NodeRunEnt
                         {showOutput ? 'Hide output' : 'Show output'}
                     </button>
                     {showOutput && (
-                        <div className="mt-1 text-xs text-foreground/60 bg-muted/40 rounded p-2 max-h-24 overflow-y-auto">
-                            <pre className="whitespace-pre-wrap break-all">
+                        <div className="mt-1 text-xs text-white/90 bg-white/10 rounded p-2 max-h-24 overflow-y-auto">
+                            <pre className="whitespace-pre-wrap break-all text-white">
                                 {JSON.stringify(nodeRun.outputData, null, 2)}
                             </pre>
                         </div>
