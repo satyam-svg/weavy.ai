@@ -27,9 +27,20 @@ import { CustomConnectionLine, connectionLineStyles } from './custom-connection-
 import { BottomToolbar, LeftPanel, RightPanel } from './primitives';
 import { WorkflowHistoryPanel } from './primitives/WorkflowHistoryPanel';
 import { PageLoader } from '@/components/ui/page-loader';
-import { createExecutionPlan, getConnectedNodes } from '@/lib/dagExecution';
-import { executeNode, gatherNodeInputs } from '@/lib/nodeExecutor';
+import { createExecutionPlan, getConnectedNodes, getUpstreamClosure } from '@/lib/dagExecution';
+import { gatherNodeInputs } from '@/lib/nodeExecutor';
 import { toast } from 'sonner';
+
+/** Poll a single Trigger.dev run until completed or failed */
+async function pollRun(runId: string, maxAttempts = 600): Promise<{ status: string; output?: unknown; error?: string; isCompleted: boolean; isFailed: boolean }> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const res = await fetch(`/api/trigger?runId=${runId}`);
+    const data = await res.json();
+    if (data.isCompleted || data.isFailed) return data;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  throw new Error('Workflow run timed out');
+}
 
 // ============================================================================
 // Main Builder Component
@@ -217,21 +228,17 @@ function BuilderInner() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [deleteSelectedNodes]);
 
-  // Run all nodes in the workflow
+  // Run all nodes via single server-side orchestration (one request, one run handle)
   const handleRunAll = React.useCallback(async () => {
     if (!workflowId || nodes.length === 0) return;
 
-    // Filter to only connected nodes
     const connectedNodes = getConnectedNodes(nodes, edges);
-
     if (connectedNodes.length === 0) {
       toast.error('No connected nodes to run');
       return;
     }
 
-    // Create execution plan with DAG validation
     const plan = createExecutionPlan(connectedNodes, edges);
-
     if (!plan.isValidDAG) {
       toast.error(`Invalid workflow: ${plan.error}`);
       return;
@@ -239,84 +246,94 @@ function BuilderInner() {
 
     const nodeIds = connectedNodes.map((n) => n.id);
     const runId = await startRun(workflowId, 'full', nodeIds);
-
     if (!runId) return;
 
-    const completedNodes = new Set<string>();
-    let hasFailures = false;
+    const nodeRunIds: Record<string, string> = {};
+    for (const node of connectedNodes) {
+      const inputData = gatherNodeInputs(node.id, connectedNodes, edges);
+      const nodeRunId = await addNodeToRun(
+        runId,
+        node.id,
+        (node.data as { label?: string }).label || node.type || 'Node',
+        node.type || 'unknown',
+        inputData
+      );
+      if (nodeRunId) nodeRunIds[node.id] = nodeRunId;
+    }
 
-    // Execute batches in parallel
-    for (const batch of plan.batches) {
-      const batchPromises = batch.nodeIds.map(async (nodeId) => {
-        const node = connectedNodes.find(n => n.id === nodeId);
-        if (!node) return;
+    const serialNodes = connectedNodes.map((n) => ({ id: n.id, type: n.type ?? '', data: n.data as Record<string, unknown> }));
+    const serialEdges = edges
+      .filter((e) => nodeIds.includes(e.source) && nodeIds.includes(e.target))
+      .map((e) => ({ source: e.source, target: e.target, sourceHandle: e.sourceHandle ?? null, targetHandle: e.targetHandle ?? null }));
 
-        // Gather inputs for history
-        const inputData = gatherNodeInputs(nodeId, connectedNodes, edges);
-
-        const nodeRunId = await addNodeToRun(
-          runId,
-          nodeId,
-          node.data.label || node.type || 'Node',
-          node.type || 'unknown',
-          inputData
-        );
-
-        if (nodeRunId) {
-          try {
-            // Set visual running state BEFORE execution
-            updateNodeData(nodeId, { isProcessing: true, isLoading: true });
-
-            // Execute the actual node via Trigger.dev
-            const result = await executeNode(node, connectedNodes, edges, updateNodeData);
-
-            // Clear running state
-            updateNodeData(nodeId, { isProcessing: false, isLoading: false });
-
-            if (result.success) {
-              await completeNodeRun(nodeRunId, 'completed', result.output);
-              completedNodes.add(nodeId);
-            } else {
-              await completeNodeRun(nodeRunId, 'failed', undefined, result.error);
-              hasFailures = true;
-            }
-          } catch (error) {
-            // Clear running state on error
-            updateNodeData(nodeId, { isProcessing: false, isLoading: false });
-            const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-            await completeNodeRun(nodeRunId, 'failed', undefined, errorMsg);
-            hasFailures = true;
-          }
-        }
+    let triggerRes: Response;
+    try {
+      triggerRes = await fetch('/api/workflow/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nodes: serialNodes, edges: serialEdges }),
       });
-
-      // Wait for all nodes in this batch to complete before moving to next
-      await Promise.all(batchPromises);
+    } catch (e) {
+      await completeRun(runId, 'failed');
+      toast.error('Failed to start workflow run');
+      return;
     }
 
-    // Complete the run
-    const finalStatus = hasFailures
-      ? (completedNodes.size === 0 ? 'failed' : 'partial')
-      : 'completed';
-    await completeRun(runId, finalStatus);
-
-    if (finalStatus === 'completed') {
-      const prev = queryClient.getQueryData<{ totalCredit: number }>(['user', 'credits']);
-      const next = Math.max(0, (prev?.totalCredit ?? 100) - 5);
-      queryClient.setQueryData(['user', 'credits'], { totalCredit: next });
-      queryClient.invalidateQueries({ queryKey: ['user', 'credits'] });
+    const triggerResult = await triggerRes.json();
+    if (!triggerResult.success || !triggerResult.runId) {
+      await completeRun(runId, 'failed');
+      toast.error(triggerResult.error || 'Failed to start workflow run');
+      return;
     }
-    toast.success(`Workflow run ${finalStatus}`);
+
+    connectedNodes.forEach((n) => updateNodeData(n.id, { isProcessing: true, isLoading: true } as Record<string, unknown>));
+
+    try {
+      const poll = await pollRun(triggerResult.runId);
+      const output = poll.output as { status: string; nodeOutputs?: Record<string, Record<string, unknown>>; errors?: Record<string, string> } | undefined;
+      const nodeOutputs = output?.nodeOutputs ?? {};
+      const errors = output?.errors ?? {};
+
+      for (const node of connectedNodes) {
+        updateNodeData(node.id, { isProcessing: false, isLoading: false } as Record<string, unknown>);
+        const nodeRunId = nodeRunIds[node.id];
+        if (!nodeRunId) continue;
+        if (errors[node.id]) {
+          await completeNodeRun(nodeRunId, 'failed', undefined, errors[node.id]);
+        } else if (nodeOutputs[node.id]) {
+          const out = nodeOutputs[node.id];
+          if (node.type === 'cropImage') updateNodeData(node.id, { outputImageUrl: (out as { outputImageUrl?: string }).outputImageUrl, isProcessing: false });
+          else if (node.type === 'extractFrame') updateNodeData(node.id, { outputFrameUrl: (out as { outputFrameUrl?: string }).outputFrameUrl, isProcessing: false });
+          else if (node.type === 'llm') updateNodeData(node.id, { output: (out as { output?: string }).output, isLoading: false });
+          await completeNodeRun(nodeRunId, 'completed', out);
+        }
+      }
+
+      const finalStatus = output?.status === 'failed' ? 'failed' : output?.status === 'partial' ? 'partial' : 'completed';
+      await completeRun(runId, finalStatus);
+
+      if (finalStatus === 'completed') {
+        const prev = queryClient.getQueryData<{ totalCredit: number }>(['user', 'credits']);
+        const next = Math.max(0, (prev?.totalCredit ?? 100) - 5);
+        queryClient.setQueryData(['user', 'credits'], { totalCredit: next });
+        queryClient.invalidateQueries({ queryKey: ['user', 'credits'] });
+      }
+      toast.success(`Workflow run ${finalStatus}`);
+    } catch (e) {
+      connectedNodes.forEach((n) => updateNodeData(n.id, { isProcessing: false, isLoading: false } as Record<string, unknown>));
+      await completeRun(runId, 'failed');
+      toast.error(e instanceof Error ? e.message : 'Workflow run failed');
+    }
   }, [workflowId, nodes, edges, startRun, addNodeToRun, completeNodeRun, completeRun, updateNodeData, queryClient]);
 
-  // Run selected nodes
+  // Run selected nodes via single server-side orchestration (sends closure: selected + upstream)
   const handleRunSelected = React.useCallback(async () => {
     if (!workflowId || selectedNodes.length === 0) return;
 
-    // Create execution plan with DAG validation for selected nodes
-    const selectedNodeIds = selectedNodes.map(n => n.id);
-    const plan = createExecutionPlan(nodes, edges, selectedNodeIds);
-
+    const selectedNodeIds = selectedNodes.map((n) => n.id);
+    const closureIds = getUpstreamClosure(selectedNodeIds, edges);
+    const closureNodes = nodes.filter((n) => closureIds.has(n.id));
+    const plan = createExecutionPlan(closureNodes, edges);
     if (!plan.isValidDAG) {
       toast.error(`Invalid selection: ${plan.error}`);
       return;
@@ -324,72 +341,84 @@ function BuilderInner() {
 
     const scope = selectedNodes.length === 1 ? 'single' : 'selected';
     const runId = await startRun(workflowId, scope, selectedNodeIds);
-
     if (!runId) return;
 
-    const completedNodes = new Set<string>();
-    let hasFailures = false;
+    const nodeRunIds: Record<string, string> = {};
+    for (const node of closureNodes) {
+      const inputData = gatherNodeInputs(node.id, closureNodes, edges);
+      const nodeRunId = await addNodeToRun(
+        runId,
+        node.id,
+        (node.data as { label?: string }).label || node.type || 'Node',
+        node.type || 'unknown',
+        inputData
+      );
+      if (nodeRunId) nodeRunIds[node.id] = nodeRunId;
+    }
 
-    // Execute batches in parallel
-    for (const batch of plan.batches) {
-      const batchPromises = batch.nodeIds.map(async (nodeId) => {
-        const node = nodes.find(n => n.id === nodeId);
-        if (!node) return;
+    const serialNodes = closureNodes.map((n) => ({ id: n.id, type: n.type ?? '', data: n.data as Record<string, unknown> }));
+    const serialEdges = edges
+      .filter((e) => closureIds.has(e.source) && closureIds.has(e.target))
+      .map((e) => ({ source: e.source, target: e.target, sourceHandle: e.sourceHandle ?? null, targetHandle: e.targetHandle ?? null }));
 
-        // Gather inputs for history
-        const inputData = gatherNodeInputs(nodeId, nodes, edges);
-
-        const nodeRunId = await addNodeToRun(
-          runId,
-          nodeId,
-          node.data.label || node.type || 'Node',
-          node.type || 'unknown',
-          inputData
-        );
-
-        if (nodeRunId) {
-          try {
-            // Set visual running state BEFORE execution
-            updateNodeData(nodeId, { isProcessing: true, isLoading: true });
-
-            // Execute the actual node via Trigger.dev
-            const result = await executeNode(node, nodes, edges, updateNodeData);
-
-            // Clear running state
-            updateNodeData(nodeId, { isProcessing: false, isLoading: false });
-
-            if (result.success) {
-              await completeNodeRun(nodeRunId, 'completed', result.output);
-              completedNodes.add(nodeId);
-            } else {
-              await completeNodeRun(nodeRunId, 'failed', undefined, result.error);
-              hasFailures = true;
-            }
-          } catch (error) {
-            // Clear running state on error
-            updateNodeData(nodeId, { isProcessing: false, isLoading: false });
-            const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-            await completeNodeRun(nodeRunId, 'failed', undefined, errorMsg);
-            hasFailures = true;
-          }
-        }
+    let triggerRes: Response;
+    try {
+      triggerRes = await fetch('/api/workflow/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nodes: serialNodes, edges: serialEdges }),
       });
-
-      await Promise.all(batchPromises);
+    } catch (e) {
+      await completeRun(runId, 'failed');
+      toast.error('Failed to start workflow run');
+      return;
     }
 
-    const finalStatus = hasFailures
-      ? (completedNodes.size === 0 ? 'failed' : 'partial')
-      : 'completed';
-    await completeRun(runId, finalStatus);
-
-    if (finalStatus === 'completed') {
-      const prev = queryClient.getQueryData<{ totalCredit: number }>(['user', 'credits']);
-      const next = Math.max(0, (prev?.totalCredit ?? 100) - 5);
-      queryClient.setQueryData(['user', 'credits'], { totalCredit: next });
-      queryClient.invalidateQueries({ queryKey: ['user', 'credits'] });
+    const triggerResult = await triggerRes.json();
+    if (!triggerResult.success || !triggerResult.runId) {
+      await completeRun(runId, 'failed');
+      toast.error(triggerResult.error || 'Failed to start workflow run');
+      return;
     }
-    toast.success(`${scope === 'single' ? 'Node' : 'Selected nodes'} run ${finalStatus}`);
+
+    closureNodes.forEach((n) => updateNodeData(n.id, { isProcessing: true, isLoading: true } as Record<string, unknown>));
+
+    try {
+      const poll = await pollRun(triggerResult.runId);
+      const output = poll.output as { status: string; nodeOutputs?: Record<string, Record<string, unknown>>; errors?: Record<string, string> } | undefined;
+      const nodeOutputs = output?.nodeOutputs ?? {};
+      const errors = output?.errors ?? {};
+
+      for (const node of closureNodes) {
+        updateNodeData(node.id, { isProcessing: false, isLoading: false } as Record<string, unknown>);
+        const nodeRunId = nodeRunIds[node.id];
+        if (!nodeRunId) continue;
+        if (errors[node.id]) {
+          await completeNodeRun(nodeRunId, 'failed', undefined, errors[node.id]);
+        } else if (nodeOutputs[node.id]) {
+          const out = nodeOutputs[node.id];
+          if (node.type === 'cropImage') updateNodeData(node.id, { outputImageUrl: (out as { outputImageUrl?: string }).outputImageUrl, isProcessing: false });
+          else if (node.type === 'extractFrame') updateNodeData(node.id, { outputFrameUrl: (out as { outputFrameUrl?: string }).outputFrameUrl, isProcessing: false });
+          else if (node.type === 'llm') updateNodeData(node.id, { output: (out as { output?: string }).output, isLoading: false });
+          await completeNodeRun(nodeRunId, 'completed', out);
+        }
+      }
+
+      const finalStatus = output?.status === 'failed' ? 'failed' : output?.status === 'partial' ? 'partial' : 'completed';
+      await completeRun(runId, finalStatus);
+
+      if (finalStatus === 'completed') {
+        const prev = queryClient.getQueryData<{ totalCredit: number }>(['user', 'credits']);
+        const next = Math.max(0, (prev?.totalCredit ?? 100) - 5);
+        queryClient.setQueryData(['user', 'credits'], { totalCredit: next });
+        queryClient.invalidateQueries({ queryKey: ['user', 'credits'] });
+      }
+      toast.success(`${scope === 'single' ? 'Node' : 'Selected nodes'} run ${finalStatus}`);
+    } catch (e) {
+      closureNodes.forEach((n) => updateNodeData(n.id, { isProcessing: false, isLoading: false } as Record<string, unknown>));
+      await completeRun(runId, 'failed');
+      toast.error(e instanceof Error ? e.message : 'Workflow run failed');
+    }
   }, [workflowId, nodes, edges, selectedNodes, startRun, addNodeToRun, completeNodeRun, completeRun, updateNodeData, queryClient]);
 
 

@@ -265,3 +265,25 @@ export function getConnectedNodes(
 
     return nodes.filter(node => connectedNodeIds.has(node.id));
 }
+
+/**
+ * Get selected node IDs plus all upstream dependency IDs (for "run selected").
+ * Used so the orchestrator receives the full subgraph needed to run the selection.
+ */
+export function getUpstreamClosure(
+    selectedNodeIds: string[],
+    edges: WorkflowEdge[]
+): Set<string> {
+    const closure = new Set<string>(selectedNodeIds);
+    let changed = true;
+    while (changed) {
+        changed = false;
+        for (const e of edges) {
+            if (closure.has(e.target) && !closure.has(e.source)) {
+                closure.add(e.source);
+                changed = true;
+            }
+        }
+    }
+    return closure;
+}

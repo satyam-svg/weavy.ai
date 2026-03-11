@@ -79,6 +79,27 @@ export const triggerRequestSchema = z.object({
   payload: z.record(z.string(), z.unknown()),
 });
 
+/** Serializable node for workflow orchestrator */
+const serialNodeSchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  data: z.record(z.string(), z.unknown()),
+});
+
+/** Serializable edge for workflow orchestrator */
+const serialEdgeSchema = z.object({
+  source: z.string(),
+  target: z.string(),
+  sourceHandle: z.string().nullable().optional(),
+  targetHandle: z.string().nullable().optional(),
+});
+
+export const workflowRunRequestSchema = z.object({
+  nodes: z.array(serialNodeSchema),
+  edges: z.array(serialEdgeSchema),
+  selectedNodeIds: z.array(z.string()).optional(),
+});
+
 // ---------------------------------------------------------------------------
 // Helper: parse and return 400 on validation error
 // ---------------------------------------------------------------------------
