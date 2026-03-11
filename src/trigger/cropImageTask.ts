@@ -1,75 +1,114 @@
 /**
  * Crop Image Task - Trigger.dev Task for Image Cropping
- * 
- * This task crops images using Transloadit's image processing.
- * Accepts percentage-based crop coordinates.
+ *
+ * Uses FFmpeg to crop the image (percentage-based). Transloadit is used only
+ * for uploading the result.
  */
 
 import { task, logger } from "@trigger.dev/sdk/v3";
+import fs from "fs/promises";
+import path from "path";
+import os from "os";
+import { spawn } from "child_process";
+import { uploadBufferToTransloadit } from "@/lib/transloadit-server";
 
 // ============================================================================
 // Types
 // ============================================================================
 
 export interface CropImageTaskPayload {
-    imageUrl: string;
-    cropX: number;       // percentage 0-100
-    cropY: number;       // percentage 0-100
-    cropWidth: number;   // percentage 0-100
-    cropHeight: number;  // percentage 0-100
+  imageUrl: string;
+  cropX: number; // percentage 0-100
+  cropY: number;
+  cropWidth: number;
+  cropHeight: number;
 }
 
 export interface CropImageTaskResult {
-    croppedImageUrl: string;
+  croppedImageUrl: string;
 }
 
-interface TransloaditResult {
-    ssl_url: string;
-    [key: string]: unknown;
-}
-
-interface TransloaditAssemblyResult {
-    ok: string;
-    results: {
-        [stepName: string]: TransloaditResult[];
-    };
-    error?: string;
-}
+const FFMPEG_PATH = process.env.FFMPEG_PATH ?? "ffmpeg";
+const FFPROBE_PATH = process.env.FFPROBE_PATH ?? "ffprobe";
 
 // ============================================================================
 // Helpers
 // ============================================================================
 
-const TRANSLOADIT_AUTH_KEY = process.env.NEXT_PUBLIC_TRANSLOADIT_KEY || '';
-
-/**
- * Poll assembly status until complete
- */
-async function pollAssemblyStatus(
-    assemblyUrl: string,
-    maxAttempts = 60,
-    intervalMs = 1000
-): Promise<TransloaditAssemblyResult | null> {
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        try {
-            const response = await fetch(assemblyUrl);
-            const data = await response.json() as TransloaditAssemblyResult;
-
-            if (data.ok === 'ASSEMBLY_COMPLETED') {
-                return data;
-            } else if (data.ok === 'ASSEMBLY_EXECUTING' || data.ok === 'ASSEMBLY_UPLOADING') {
-                await new Promise(resolve => setTimeout(resolve, intervalMs));
-            } else if (data.error) {
-                logger.error('Assembly error', { error: data.error });
-                return null;
-            }
-        } catch (error) {
-            logger.error('Polling error', { error });
-            await new Promise(resolve => setTimeout(resolve, intervalMs));
+async function getImageDimensions(
+  inputPath: string
+): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(FFPROBE_PATH, [
+      "-v",
+      "error",
+      "-select_streams",
+      "v:0",
+      "-show_entries",
+      "stream=width,height",
+      "-of",
+      "json",
+      inputPath,
+    ], { stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    let err = "";
+    proc.stdout?.on("data", (chunk) => {
+      out += chunk.toString();
+    });
+    proc.stderr?.on("data", (chunk) => {
+      err += chunk.toString();
+    });
+    proc.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(`ffprobe exited ${code}: ${err}`));
+        return;
+      }
+      try {
+        const data = JSON.parse(out) as { streams?: { width: number; height: number }[] };
+        const stream = data.streams?.[0];
+        if (!stream?.width || !stream?.height) {
+          reject(new Error("Could not get image dimensions"));
+          return;
         }
-    }
+        resolve({ width: stream.width, height: stream.height });
+      } catch (e) {
+        reject(e);
+      }
+    });
+    proc.on("error", reject);
+  });
+}
 
-    return null;
+function runFfmpeg(args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(FFMPEG_PATH, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stderr = "";
+    proc.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    proc.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`ffmpeg exited ${code}: ${stderr.slice(-500)}`));
+    });
+    proc.on("error", (err) => reject(err));
+  });
+}
+
+async function downloadToTemp(url: string, ext: string): Promise<string> {
+  if (url.startsWith("data:")) {
+    const base64 = url.replace(/^data:[^;]+;base64,/, "");
+    const tmpDir = os.tmpdir();
+    const filePath = path.join(tmpDir, `image_${Date.now()}${ext}`);
+    await fs.writeFile(filePath, Buffer.from(base64, "base64"));
+    return filePath;
+  }
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  const tmpDir = os.tmpdir();
+  const filePath = path.join(tmpDir, `image_${Date.now()}${ext}`);
+  await fs.writeFile(filePath, buf);
+  return filePath;
 }
 
 // ============================================================================
@@ -77,82 +116,71 @@ async function pollAssemblyStatus(
 // ============================================================================
 
 export const cropImageTask = task({
-    id: "crop-image",
-    maxDuration: 180, // 3 minutes max for image processing
-    retry: {
-        maxAttempts: 3,
-        minTimeoutInMs: 1000,
-        maxTimeoutInMs: 5000,
-        factor: 2,
-    },
-    run: async (payload: CropImageTaskPayload): Promise<CropImageTaskResult> => {
-        const { imageUrl, cropX, cropY, cropWidth, cropHeight } = payload;
+  id: "crop-image",
+  maxDuration: 180,
+  retry: {
+    maxAttempts: 3,
+    minTimeoutInMs: 1000,
+    maxTimeoutInMs: 5000,
+    factor: 2,
+  },
+  run: async (payload: CropImageTaskPayload): Promise<CropImageTaskResult> => {
+    const { imageUrl, cropX, cropY, cropWidth, cropHeight } = payload;
 
-        logger.info("Starting crop image task", {
-            imageUrl: imageUrl.substring(0, 50) + '...',
-            cropX, cropY, cropWidth, cropHeight
-        });
+    logger.info("Starting crop image task (FFmpeg)", {
+      imageUrl: imageUrl.substring(0, 50) + "...",
+      cropX,
+      cropY,
+      cropWidth,
+      cropHeight,
+    });
 
-        if (!TRANSLOADIT_AUTH_KEY) {
-            throw new Error("NEXT_PUBLIC_TRANSLOADIT_KEY is not configured.");
-        }
+    const tmpDir = os.tmpdir();
+    const ext = imageUrl.includes("png") ? ".png" : ".jpg";
+    const inputPath = await downloadToTemp(imageUrl, ext);
+    const outputPath = path.join(tmpDir, `cropped_${Date.now()}${ext}`);
 
-        const params = {
-            auth: {
-                key: TRANSLOADIT_AUTH_KEY,
-            },
-            steps: {
-                imported: {
-                    robot: '/http/import',
-                    url: imageUrl,
-                },
-                cropped: {
-                    use: 'imported',
-                    robot: '/image/resize',
-                    crop: {
-                        x1: `${cropX}%`,
-                        y1: `${cropY}%`,
-                        x2: `${cropX + cropWidth}%`,
-                        y2: `${cropY + cropHeight}%`,
-                    },
-                    result: true,
-                },
-            },
-        };
+    try {
+      const { width, height } = await getImageDimensions(inputPath);
 
-        try {
-            logger.info("Creating Transloadit assembly for crop...");
+      const x = Math.round((width * cropX) / 100);
+      const y = Math.round((height * cropY) / 100);
+      const w = Math.round((width * cropWidth) / 100);
+      const h = Math.round((height * cropHeight) / 100);
 
-            const response = await fetch('https://api2.transloadit.com/assemblies', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ params: JSON.stringify(params) }),
-            });
+      if (w <= 0 || h <= 0) {
+        throw new Error("Invalid crop size");
+      }
 
-            const data = await response.json() as { assembly_ssl_url: string };
+      await runFfmpeg([
+        "-i",
+        inputPath,
+        "-vf",
+        `crop=${w}:${h}:${x}:${y}`,
+        "-y",
+        outputPath,
+      ]);
 
-            logger.info("Polling assembly status...", { assemblyUrl: data.assembly_ssl_url });
+      const croppedBuffer = await fs.readFile(outputPath);
 
-            const result = await pollAssemblyStatus(data.assembly_ssl_url);
+      const upload = await uploadBufferToTransloadit(
+        croppedBuffer,
+        `cropped${ext}`,
+        ext === ".png" ? "image/png" : "image/jpeg"
+      );
 
-            if (result && result.ok === 'ASSEMBLY_COMPLETED') {
-                const croppedUrl = result.results.cropped?.[0]?.ssl_url;
+      if (!upload?.ssl_url) {
+        throw new Error("Transloadit upload failed");
+      }
 
-                if (!croppedUrl) {
-                    throw new Error("No cropped image URL in assembly result");
-                }
+      logger.info("Crop image task completed (FFmpeg)", {
+        croppedUrl: upload.ssl_url.substring(0, 50) + "...",
+      });
 
-                logger.info("Crop image task completed", { croppedUrl: croppedUrl.substring(0, 50) + '...' });
-
-                return { croppedImageUrl: croppedUrl };
-            }
-
-            throw new Error("Assembly failed to complete");
-        } catch (error) {
-            logger.error("Crop image error", { error });
-            throw error;
-        }
-    },
+      return { croppedImageUrl: upload.ssl_url };
+    } finally {
+      await fs.unlink(inputPath).catch(() => {});
+      await fs.unlink(outputPath).catch(() => {});
+    }
+  },
 });

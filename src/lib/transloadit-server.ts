@@ -133,3 +133,59 @@ export async function uploadFileToTransloadit(
     return null;
   }
 }
+
+/**
+ * Upload a buffer to Transloadit (for Trigger.dev tasks: upload FFmpeg output only).
+ * No processing — just store and return the public URL.
+ */
+export async function uploadBufferToTransloadit(
+  buffer: Buffer,
+  filename: string,
+  mimeType: string
+): Promise<{ ssl_url: string } | null> {
+  if (!TRANSLOADIT_KEY) {
+    console.error('TRANSLOADIT_KEY or TRANSLOADIT_AUTH_KEY is not set');
+    return null;
+  }
+
+  const params = {
+    auth: { key: TRANSLOADIT_KEY },
+    steps: {
+      ':original': { robot: '/upload/handle' as const, result: true },
+    },
+  };
+
+  const formData = new FormData();
+  formData.append('params', JSON.stringify(params));
+  formData.append('file', new Blob([new Uint8Array(buffer)], { type: mimeType }), filename);
+
+  try {
+    const response = await fetch('https://api2.transloadit.com/assemblies', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      console.error('Transloadit buffer upload failed:', response.status, text);
+      return null;
+    }
+
+    const data = (await response.json()) as { assembly_ssl_url?: string; error?: string };
+    if (data.error || !data.assembly_ssl_url) {
+      console.error('Transloadit response error:', data.error ?? 'No assembly_ssl_url');
+      return null;
+    }
+
+    const result = await pollAssemblyStatus(data.assembly_ssl_url);
+    if (!result || result.ok !== 'ASSEMBLY_COMPLETED') {
+      return null;
+    }
+
+    const file = result.results[':original']?.[0];
+    return file?.ssl_url != null ? { ssl_url: file.ssl_url } : null;
+  } catch (error) {
+    console.error('Transloadit buffer upload error:', error);
+    return null;
+  }
+}

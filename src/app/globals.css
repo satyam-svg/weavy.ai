@@ -247,45 +247,51 @@
     display: none;
   }
 
-  /* Pulsating glow effect for running nodes */
+  /* Allow glow to show: React Flow node wrapper must not clip box-shadow */
+  .react-flow__node:has(.node-running-glow),
+  .react-flow__node:has(.node-processing-glow) {
+    overflow: visible;
+  }
+
+  /* Pulsating glow for running nodes (LLM) – cyan/blue, visible on dark canvas */
   .node-running-glow {
-    animation: pulse-glow 2s ease-in-out infinite;
+    overflow: visible;
+    animation: pulse-glow 1.5s ease-in-out infinite;
+    box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.3);
   }
 
   @keyframes pulse-glow {
-
     0%,
     100% {
-      box-shadow: 0 0 5px rgba(0, 0, 0, 0.5),
-        0 0 10px rgba(0, 0, 0, 0.3),
-        0 0 20px rgba(0, 0, 0, 0.2);
+      box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.4),
+        0 0 12px rgba(34, 211, 238, 0.25),
+        0 0 24px rgba(34, 211, 238, 0.15);
     }
-
     50% {
-      box-shadow: 0 0 10px rgba(0, 0, 0, 0.8),
-        0 0 20px rgba(0, 0, 0, 0.6),
-        0 0 40px rgba(0, 0, 0, 0.4);
+      box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.7),
+        0 0 20px rgba(34, 211, 238, 0.5),
+        0 0 40px rgba(34, 211, 238, 0.3);
     }
   }
 
-  /* Purple glow for image/video processing nodes */
+  /* Purple pulsating glow for image/video processing nodes (Crop, Extract Frame) */
   .node-processing-glow {
-    animation: pulse-glow-purple 2s ease-in-out infinite;
+    overflow: visible;
+    animation: pulse-glow-purple 1.5s ease-in-out infinite;
+    box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.3);
   }
 
   @keyframes pulse-glow-purple {
-
     0%,
     100% {
-      box-shadow: 0 0 5px rgba(0, 0, 0, 0.5),
-        0 0 10px rgba(0, 0, 0, 0.3),
-        0 0 20px rgba(0, 0, 0, 0.2);
+      box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.4),
+        0 0 12px rgba(168, 85, 247, 0.25),
+        0 0 24px rgba(168, 85, 247, 0.15);
     }
-
     50% {
-      box-shadow: 0 0 10px rgba(0, 0, 0, 0.8),
-        0 0 20px rgba(0, 0, 0, 0.6),
-        0 0 40px rgba(0, 0, 0, 0.4);
+      box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.7),
+        0 0 20px rgba(168, 85, 247, 0.5),
+        0 0 40px rgba(168, 85, 247, 0.3);
     }
   }
 }
