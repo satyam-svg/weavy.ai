@@ -15,9 +15,6 @@ import {
     buildTaskPayload,
     getSourceNodeOutput,
 } from "@/lib/workflowOrchestratorPayload";
-import type { LLMTaskPayload } from "./llmTask";
-import type { CropImageTaskPayload } from "./cropImageTask";
-import type { ExtractFrameTaskPayload } from "./extractFrameTask";
 
 // ============================================================================
 // Payload & Result Types
@@ -139,13 +136,13 @@ export const workflowOrchestratorTask = task({
 
                 if (taskSpec.type === "crop-image") {
                     taskId = "crop-image";
-                    taskPayload = taskSpec.payload as unknown as CropImageTaskPayload;
+                    taskPayload = taskSpec.payload as unknown as Record<string, unknown>;
                 } else if (taskSpec.type === "extract-frame") {
                     taskId = "extract-video-frame";
-                    taskPayload = taskSpec.payload as unknown as ExtractFrameTaskPayload;
+                    taskPayload = taskSpec.payload as unknown as Record<string, unknown>;
                 } else {
                     taskId = "llm-gemini";
-                    taskPayload = taskSpec.payload as unknown as LLMTaskPayload;
+                    taskPayload = taskSpec.payload as unknown as Record<string, unknown>;
                 }
 
                 logger.info("Triggering child task", { nodeId: serialNode.id, taskId });
